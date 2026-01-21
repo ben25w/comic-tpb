@@ -24,7 +24,7 @@ exports.handler = async (event) => {
         console.log(`📋 Found ${series.length} series`);
 
         for (const s of series) {
-            console.log(`🔍 Checking: "${s.name}"`);
+            console.log(`\n🔍 Checking: "${s.name}"`);
             
             try {
                 const result = await searchGetcomics(s.name);
@@ -60,7 +60,7 @@ exports.handler = async (event) => {
             await db.from('series').update({ last_poll: new Date().toISOString() }).eq('id', s.id);
         }
 
-        console.log('✓ Completed');
+        console.log('\n✓ Poller completed');
         return { statusCode: 200, body: 'OK' };
     } catch (err) {
         console.error('❌ ERROR:', err.message);
@@ -72,12 +72,20 @@ async function searchGetcomics(seriesName) {
     const searchUrl = `https://getcomics.org/?s=${encodeURIComponent(seriesName + ' tpb')}`;
     
     try {
-        const browserlessUrl = `https://chrome.browserless.io/content?token=${process.env.BROWSERLESS_TOKEN}`;
+        const token = process.env.BROWSERLESS_TOKEN;
+        const browserlessUrl = `https://chrome.browserless.io/content`;
         
-        const response = await axios.post(browserlessUrl, {
-            url: searchUrl,
-            waitForSelector: 'h2 a'
-        });
+        const response = await axios.post(
+            browserlessUrl,
+            {
+                url: searchUrl,
+                waitForSelector: 'h2 a',
+            },
+            {
+                params: { token: token },
+                timeout: 30000
+            }
+        );
 
         const html = response.data;
         const headingRegex = /<h[2-4][^>]*>\s*<a[^>]+href=["']([^"']+)["'][^>]*>([^<]+)<\/a>\s*<\/h[2-4]>/gi;
