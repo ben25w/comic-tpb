@@ -1,0 +1,8 @@
+{
+  "name": "comic-tpb-tracker",
+  "version": "1.0.0",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.38.0",
+    "jsdom": "^22.1.0"
+  }
+}
