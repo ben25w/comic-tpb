@@ -1,17 +1,14 @@
 const { createClient } = require('@supabase/supabase-js');
-const https = require('https');
+const puppeteer = require('puppeteer');
 
 exports.handler = async (event) => {
+    let browser;
     try {
         console.log('⏰ POLLER STARTED');
         
-        if (!process.env.SUPABASE_URL) {
-            console.error('❌ SUPABASE_URL not set');
-            return { statusCode: 500, body: 'Missing SUPABASE_URL' };
-        }
-        if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
-            console.error('❌ SUPABASE_SERVICE_ROLE_KEY not set');
-            return { statusCode: 500, body: 'Missing SUPABASE_SERVICE_ROLE_KEY' };
+        if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+            console.error('❌ Missing Supabase env vars');
+            return { statusCode: 500, body: 'Missing env vars' };
         }
 
         const db = createClient(
@@ -21,24 +18,22 @@ exports.handler = async (event) => {
 
         console.log('✓ Supabase connected');
 
-        const { data: series, error: seriesError } = await db.from('series').select('*');
-
-        if (seriesError) {
-            console.error('❌ Error fetching series:', seriesError);
-            return { statusCode: 500, body: JSON.stringify(seriesError) };
-        }
-
+        const { data: series } = await db.from('series').select('*');
         console.log(`📋 Found ${series.length} series`);
 
+        browser = await puppeteer.launch({
+            args: ['--no-sandbox', '--disable-setuid-sandbox'],
+            headless: 'new'
+        });
+
         for (const s of series) {
-            console.log(`\n🔍 Checking: "${s.name}"`);
+            console.log(`🔍 Checking: "${s.name}"`);
             
             try {
-                const result = await searchGetcomics(s.name);
-                console.log(`  Result:`, result);
+                const result = await searchGetcomics(s.name, browser);
 
                 if (result.found && result.tpb) {
-                    console.log(`  ✓ TPB found: ${result.tpb.title}`);
+                    console.log(`  ✓ Found: ${result.tpb.title}`);
                     
                     const { data: existing } = await db
                         .from('tpbs')
@@ -47,21 +42,17 @@ exports.handler = async (event) => {
                         .eq('title', result.tpb.title);
 
                     if (!existing || existing.length === 0) {
-                        const { error: insertError } = await db.from('tpbs').insert([{
+                        await db.from('tpbs').insert([{
                             series_id: s.id,
                             title: result.tpb.title,
                             link: result.tpb.link,
                             release_date: new Date().toISOString()
                         }]);
-
-                        if (insertError) {
-                            console.error(`  ❌ Insert error:`, insertError);
-                        } else {
-                            console.log(`  ✓ Inserted`);
-                            await db.from('dismissed').delete().eq('series_id', s.id);
-                        }
+                        console.log(`  ✓ Inserted`);
+                        
+                        await db.from('dismissed').delete().eq('series_id', s.id);
                     } else {
-                        console.log(`  ℹ️  Already known`);
+                        console.log(`  ℹ️  Already in DB`);
                     }
                 } else {
                     console.log(`  ⊘ No TPB found`);
@@ -73,45 +64,48 @@ exports.handler = async (event) => {
             await db.from('series').update({ last_poll: new Date().toISOString() }).eq('id', s.id);
         }
 
-        console.log('\n✓ Poller completed');
+        console.log('✓ Poller completed');
         return { statusCode: 200, body: 'OK' };
     } catch (err) {
-        console.error('❌ FATAL ERROR:', err);
+        console.error('❌ FATAL:', err.message);
         return { statusCode: 500, body: err.message };
+    } finally {
+        if (browser) await browser.close();
     }
 };
 
-async function searchGetcomics(seriesName) {
+async function searchGetcomics(seriesName, browser) {
     const searchUrl = `https://getcomics.org/?s=${encodeURIComponent(seriesName + ' tpb')}`;
     
-    const html = await fetchUrl(searchUrl);
-    const headingRegex = /<h[2-4]>\s*<a\s+href=["']([^"']+)["'][^>]*>([^<]+)<\/a>\s*<\/h[2-4]>/gi;
-    
-    let match;
-    while ((match = headingRegex.exec(html)) !== null) {
-        const title = match[2].trim();
-        const link = match[1];
-        
-        const isTpb = /\btpb\b|trade\s*paperback|vol\.?\s*\d+|hardcover|deluxe|collection|omnibus/i.test(title);
-        const isSingleIssue = /\s#\d+\s*\(/i.test(title);
-        
-        if (isTpb && !isSingleIssue) {
-            return { found: true, tpb: { title, link } };
-        }
-    }
+    try {
+        const page = await browser.newPage();
+        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36');
+        await page.goto(searchUrl, { waitUntil: 'networkidle2', timeout: 30000 });
 
-    return { found: false };
-}
-
-function fetchUrl(url) {
-    return new Promise((resolve, reject) => {
-        https.get(url, 
-            { headers: { 'User-Agent': 'Mozilla/5.0' }, timeout: 15000 }, 
-            (res) => {
-                let data = '';
-                res.on('data', chunk => data += chunk);
-                res.on('end', () => resolve(data));
+        const results = await page.evaluate(() => {
+            const items = [];
+            const headings = document.querySelectorAll('h2 a, h3 a');
+            for (let i = 0; i < Math.min(headings.length, 20); i++) {
+                items.push({
+                    title: headings[i].textContent.trim(),
+                    link: headings[i].href
+                });
             }
-        ).on('error', reject);
-    });
+            return items;
+        });
+
+        await page.close();
+
+        for (const { title, link } of results) {
+            if (/\btpb\b|trade\s*paperback|vol\.?\s*\d+|hardcover|deluxe|collection|omnibus/i.test(title) 
+                && !/\s#\d+\s*\(/i.test(title)) {
+                return { found: true, tpb: { title, link } };
+            }
+        }
+
+        return { found: false };
+    } catch (err) {
+        console.error(`Search error for "${seriesName}":`, err.message);
+        return { found: false };
+    }
 }
