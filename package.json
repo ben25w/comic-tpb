@@ -3,6 +3,6 @@
   "version": "1.0.0",
   "dependencies": {
     "@supabase/supabase-js": "^2.38.0",
-    "got": "^14.0.0"
+    "cloudscraper": "^1.7.0"
   }
 }
