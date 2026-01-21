@@ -1,5 +1,5 @@
 const { createClient } = require('@supabase/supabase-js');
-const cloudscraper = require('cloudscraper');
+const axios = require('axios');
 
 exports.handler = async (event) => {
     try {
@@ -15,13 +15,11 @@ exports.handler = async (event) => {
             process.env.SUPABASE_SERVICE_ROLE_KEY
         );
 
-        console.log('✓ Supabase connected');
-
         const { data: series } = await db.from('series').select('*');
         console.log(`📋 Found ${series.length} series`);
 
         for (const s of series) {
-            console.log(`🔍 Checking: "${s.name}"`);
+            console.log(`\n🔍 Checking: "${s.name}"`);
             
             try {
                 const result = await searchGetcomics(s.name);
@@ -36,19 +34,14 @@ exports.handler = async (event) => {
                         .eq('title', result.tpb.title);
 
                     if (!existing || existing.length === 0) {
-                        const { error: insertErr } = await db.from('tpbs').insert([{
+                        await db.from('tpbs').insert([{
                             series_id: s.id,
                             title: result.tpb.title,
                             link: result.tpb.link,
                             release_date: new Date().toISOString()
                         }]);
-                        
-                        if (insertErr) {
-                            console.error(`  ❌ Insert failed:`, insertErr);
-                        } else {
-                            console.log(`  ✓ Inserted`);
-                            await db.from('dismissed').delete().eq('series_id', s.id);
-                        }
+                        console.log(`  ✓ Inserted into DB`);
+                        await db.from('dismissed').delete().eq('series_id', s.id);
                     } else {
                         console.log(`  ℹ️  Already in DB`);
                     }
@@ -59,16 +52,13 @@ exports.handler = async (event) => {
                 console.error(`  ⚠️  Error: ${err.message}`);
             }
 
-            const { error: updateErr } = await db.from('series').update({ last_poll: new Date().toISOString() }).eq('id', s.id);
-            if (updateErr) {
-                console.error(`  ❌ Update failed:`, updateErr);
-            }
+            await db.from('series').update({ last_poll: new Date().toISOString() }).eq('id', s.id);
         }
 
-        console.log('✓ Poller completed');
+        console.log('\n✓ Poller completed successfully');
         return { statusCode: 200, body: 'OK' };
     } catch (err) {
-        console.error('❌ FATAL:', err.message);
+        console.error('❌ FATAL ERROR:', err.message);
         return { statusCode: 500, body: err.message };
     }
 };
@@ -77,7 +67,27 @@ async function searchGetcomics(seriesName) {
     const searchUrl = `https://getcomics.org/?s=${encodeURIComponent(seriesName + ' tpb')}`;
     
     try {
-        const html = await cloudscraper.get(searchUrl);
+        const response = await axios.get(searchUrl, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5',
+                'Accept-Encoding': 'gzip, deflate',
+                'DNT': '1',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1',
+            },
+            timeout: 30000,
+            maxRedirects: 5
+        });
+
+        const html = response.data;
+
+        if (html.includes('Just a moment') || html.includes('cf_challenge')) {
+            console.log('  ⚠️ Cloudflare challenge');
+            return { found: false };
+        }
+
         const headingRegex = /<h[2-4][^>]*>\s*<a[^>]+href=["']([^"']+)["'][^>]*>([^<]+)<\/a>\s*<\/h[2-4]>/gi;
         
         let match;
@@ -93,7 +103,7 @@ async function searchGetcomics(seriesName) {
 
         return { found: false };
     } catch (err) {
-        console.error(`Search failed for "${seriesName}":`, err.message);
+        console.error(`  Search error: ${err.message}`);
         return { found: false };
     }
 }
