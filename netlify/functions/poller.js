@@ -5,7 +5,6 @@ const { JSDOM } = require('jsdom');
 exports.handler = async (event) => {
     console.log('⏰ Poller started at', new Date().toISOString());
 
-    // Check env vars exist
     if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
         console.error('❌ Missing SUPABASE env vars');
         return {
@@ -35,7 +34,6 @@ exports.handler = async (event) => {
                 const result = await searchGetcomics(s.name);
 
                 if (result.found) {
-                    // Check if TPB already exists
                     const { data: existing } = await db
                         .from('tpbs')
                         .select('*')
@@ -52,7 +50,6 @@ exports.handler = async (event) => {
                             release_date: new Date().toISOString()
                         }]);
 
-                        // Clear old dismissals for this series (new TPB found)
                         await db.from('dismissed').delete().eq('series_id', s.id);
                     } else {
                         console.log(`ℹ️  TPB already known: ${result.tpb.title}`);
@@ -64,7 +61,6 @@ exports.handler = async (event) => {
                 console.error(`⚠️  Error checking ${s.name}:`, err.message);
             }
 
-            // Update last_poll timestamp
             await db.from('series').update({ last_poll: new Date().toISOString() }).eq('id', s.id);
         }
 
@@ -90,43 +86,53 @@ async function searchGetcomics(seriesName) {
         const dom = new JSDOM(html);
         const doc = dom.window.document;
 
-        const articles = doc.querySelectorAll('article.item');
+        const resultHeadings = doc.querySelectorAll('h2 a, h3 a');
         
-        for (const article of articles) {
-            const titleEl = article.querySelector('h2 a');
-            const title = titleEl?.textContent?.trim() || '';
-            const link = titleEl?.getAttribute('href') || '';
+        for (const link of resultHeadings) {
+            const title = link.textContent?.trim() || '';
+            const href = link.getAttribute('href') || '';
             
-            // Match TPB, Trade Paperback, Volume, Vol., or similar
-            if (/\btpb\b|trade\s*paperback|vol(?:ume)?\.?|hardcover|deluxe/i.test(title)) {
+            if (/\btpb\b|trade\s*paperback|vol(?:ume)?\.?\s*\d|hardcover|deluxe|collection|omnibus/i.test(title) 
+                && !/\s#\d+\s*\(/i.test(title)) {
+                
                 return {
                     found: true,
-                    tpb: { title, link }
+                    tpb: { title, link: href }
                 };
             }
         }
 
         return { found: false };
     } catch (err) {
-        console.error(`Error searching getcomics for "${seriesName}":`, err.message);
+        console.error(`Error searching for "${seriesName}":`, err.message);
         return { found: false };
     }
 }
 
 function fetchUrl(url) {
     return new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+            reject(new Error('Request timeout'));
+        }, 15000);
+
         https.get(url, 
             { 
                 headers: { 
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
                 },
-                timeout: 10000
+                timeout: 15000
             }, 
             (res) => {
                 let data = '';
                 res.on('data', chunk => data += chunk);
-                res.on('end', () => resolve(data));
+                res.on('end', () => {
+                    clearTimeout(timeout);
+                    resolve(data);
+                });
             }
-        ).on('error', reject);
+        ).on('error', (err) => {
+            clearTimeout(timeout);
+            reject(err);
+        });
     });
 }
