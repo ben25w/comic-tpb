@@ -261,6 +261,12 @@
             color: var(--accent);
         }
 
+        .banner-error {
+            background: rgba(255, 107, 107, 0.1);
+            border: 1px solid var(--error);
+            color: var(--error);
+        }
+
         @media (max-width: 600px) {
             h1 {
                 font-size: 1.5rem;
@@ -299,6 +305,8 @@
             <p class="subtitle">Track trade paperbacks automatically</p>
         </header>
 
+        <div id="banner"></div>
+
         <div class="form-group">
             <input 
                 type="text" 
@@ -309,8 +317,6 @@
             <button onclick="addSeries()">+ Add Series</button>
         </div>
 
-        <div id="banner"></div>
-
         <div id="seriesList" class="series-list"></div>
         <div id="emptyState" class="empty-state" style="display:none;">
             📭 No series tracked yet. Add one above!
@@ -319,13 +325,29 @@
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script>
-        const SUPABASE_URL = 'YOUR_SUPABASE_URL';
-        const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY';
+        // ⚠️ REPLACE THESE WITH YOUR ACTUAL SUPABASE CREDENTIALS
+        const SUPABASE_URL = 'https://auoxszqarwhfulnvbazp.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF1b3hzenFhcndoZnVsbnZiYXpwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg5OTQ2NTIsImV4cCI6MjA4NDU3MDY1Mn0.XKhaZnNGV293b2V4nolRUDgqzbt_vY5p_Vhqq-wYaGQ';
         
-        const { createClient } = window.supabase;
-        const db = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        let db = null;
+
+        // Initialize Supabase
+        function initSupabase() {
+            if (!SUPABASE_URL.includes('YOUR_PROJECT') && !SUPABASE_ANON_KEY.includes('YOUR_')) {
+                const { createClient } = window.supabase;
+                db = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                console.log('✓ Supabase initialized');
+                return true;
+            } else {
+                showBanner('⚠️ Supabase credentials not configured. Edit index.html and add your credentials.', 'error');
+                console.error('❌ Supabase credentials missing!');
+                return false;
+            }
+        }
 
         async function addSeries() {
+            if (!db) return;
+
             const input = document.getElementById('seriesInput');
             const name = input.value.trim();
             
@@ -338,13 +360,17 @@
 
                 if (error) throw error;
                 input.value = '';
+                showBanner('✓ Series added!');
                 loadSeries();
             } catch (err) {
-                alert('Error adding series: ' + err.message);
+                showBanner('❌ Error: ' + err.message, 'error');
+                console.error('Error adding series:', err);
             }
         }
 
         async function loadSeries() {
+            if (!db) return;
+
             try {
                 const { data: series, error } = await db
                     .from('series')
@@ -371,6 +397,7 @@
                 }
             } catch (err) {
                 console.error('Error loading series:', err);
+                showBanner('❌ Error loading series: ' + err.message, 'error');
             }
         }
 
@@ -397,7 +424,7 @@
                 <div class="series-header">
                     <div>
                         <div class="series-name">${escapeHtml(series.name)}</div>
-                        ${series.last_poll ? `<div class="last-checked">Last checked: ${new Date(series.last_poll).toLocaleDateString()}</div>` : ''}
+                        ${series.last_poll ? `<div class="last-checked">Last checked: ${new Date(series.last_poll).toLocaleDateString()}</div>` : '<div class="last-checked">Never checked</div>'}
                     </div>
                     <div class="series-actions">
                         <button class="btn-small btn-secondary" onclick="refreshSeries('${series.id}')">🔄 Check</button>
@@ -424,6 +451,8 @@
         }
 
         async function refreshSeries(seriesId) {
+            if (!db) return;
+
             const { data: series } = await db.from('series').select('*').eq('id', seriesId).single();
             
             const tpbDiv = document.getElementById(`tpb-${seriesId}`);
@@ -456,36 +485,48 @@
 
                     // Clear dismissal for new TPB
                     await db.from('dismissed').delete().eq('series_id', seriesId);
+                    showBanner('✓ Check complete!');
+                } else {
+                    showBanner('No new TPBs found');
                 }
 
                 // Update last_poll
-                await db.from('series').update({ last_poll: new Date() }).eq('id', seriesId);
+                await db.from('series').update({ last_poll: new Date().toISOString() }).eq('id', seriesId);
                 loadSeries();
             } catch (err) {
                 tpbDiv.innerHTML = `<div class="tpb-status"><div class="status-text">Error: ${err.message}</div></div>`;
+                showBanner('❌ Error: ' + err.message, 'error');
             }
         }
 
         async function dismissTPB(seriesId, tpbId) {
+            if (!db) return;
+
             try {
                 await db.from('dismissed').insert([{
                     series_id: seriesId,
                     tpb_id: tpbId
                 }]);
+                showBanner('✓ Dismissed');
                 loadSeries();
             } catch (err) {
                 console.error('Error dismissing TPB:', err);
+                showBanner('❌ Error: ' + err.message, 'error');
             }
         }
 
         async function deleteSeries(seriesId) {
+            if (!db) return;
+
             if (!confirm('Delete this series?')) return;
 
             try {
                 await db.from('series').delete().eq('id', seriesId);
+                showBanner('✓ Series deleted');
                 loadSeries();
             } catch (err) {
-                alert('Error deleting series: ' + err.message);
+                showBanner('❌ Error: ' + err.message, 'error');
+                console.error('Error deleting series:', err);
             }
         }
 
@@ -495,19 +536,23 @@
             return div.innerHTML;
         }
 
-        // Load on page load
-        loadSeries();
-
-        // Show banner
-        const banner = document.getElementById('banner');
-        const now = new Date();
-        const lastRun = localStorage.getItem('lastPoller');
-        
-        if (!lastRun || (now - new Date(lastRun)) > 24 * 60 * 60 * 1000) {
-            banner.className = 'banner banner-info';
-            banner.textContent = '⏰ Daily poller hasn\'t run yet today. Check back later!';
-            localStorage.setItem('lastPoller', now);
+        function showBanner(message, type = 'info') {
+            const banner = document.getElementById('banner');
+            banner.textContent = message;
+            banner.className = `banner banner-${type}`;
+            
+            setTimeout(() => {
+                banner.innerHTML = '';
+                banner.className = 'banner';
+            }, 4000);
         }
+
+        // Initialize on page load
+        window.addEventListener('DOMContentLoaded', () => {
+            if (initSupabase()) {
+                loadSeries();
+            }
+        });
     </script>
 </body>
 </html>
