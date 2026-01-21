@@ -1,17 +1,23 @@
-const https = require('https');
+const puppeteer = require('puppeteer');
 
 exports.handler = async (event) => {
     if (event.httpMethod !== 'POST') {
-        return { statusCode: 405, body: 'Method not allowed' };
+        return { statusCode: 405, body: JSON.stringify({ error: 'Method not allowed' }) };
     }
 
+    let browser;
     try {
         const { series } = JSON.parse(event.body);
         if (!series) {
             return { statusCode: 400, body: JSON.stringify({ error: 'series required', found: false }) };
         }
 
-        const result = await searchGetcomics(series);
+        browser = await puppeteer.launch({
+            args: ['--no-sandbox', '--disable-setuid-sandbox']
+        });
+
+        const result = await searchGetcomics(series, browser);
+        
         return { 
             statusCode: 200, 
             body: JSON.stringify(result),
@@ -20,38 +26,47 @@ exports.handler = async (event) => {
     } catch (err) {
         console.error('Search error:', err);
         return { statusCode: 500, body: JSON.stringify({ error: err.message, found: false }) };
+    } finally {
+        if (browser) await browser.close();
     }
 };
 
-async function searchGetcomics(seriesName) {
+async function searchGetcomics(seriesName, browser) {
     const searchUrl = `https://getcomics.org/?s=${encodeURIComponent(seriesName + ' tpb')}`;
-    const html = await fetchUrl(searchUrl);
     
-    const headingRegex = /<h[2-4]>\s*<a\s+href=["']([^"']+)["'][^>]*>([^<]+)<\/a>\s*<\/h[2-4]>/gi;
-    
-    let match;
-    while ((match = headingRegex.exec(html)) !== null) {
-        const title = match[2].trim();
-        const link = match[1];
-        
-        if (/\btpb\b|trade\s*paperback|vol\.?\s*\d+|hardcover|deluxe|collection|omnibus/i.test(title) 
-            && !/\s#\d+\s*\(/i.test(title)) {
-            return { found: true, tpb: { title, link } };
-        }
-    }
+    try {
+        const page = await browser.newPage();
+        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+        await page.goto(searchUrl, { waitUntil: 'networkidle2', timeout: 30000 });
 
-    return { found: false };
-}
-
-function fetchUrl(url) {
-    return new Promise((resolve, reject) => {
-        https.get(url, 
-            { headers: { 'User-Agent': 'Mozilla/5.0' }, timeout: 15000 }, 
-            (res) => {
-                let data = '';
-                res.on('data', chunk => data += chunk);
-                res.on('end', () => resolve(data));
+        // Extract titles and links from the page
+        const results = await page.evaluate(() => {
+            const items = [];
+            const headings = document.querySelectorAll('h2 a, h3 a');
+            
+            for (let i = 0; i < Math.min(headings.length, 20); i++) {
+                const title = headings[i].textContent.trim();
+                const link = headings[i].href;
+                items.push({ title, link });
             }
-        ).on('error', reject);
-    });
+            return items;
+        });
+
+        await page.close();
+
+        // Filter for TPBs
+        for (const { title, link } of results) {
+            const isTpb = /\btpb\b|trade\s*paperback|vol\.?\s*\d+|hardcover|deluxe|collection|omnibus/i.test(title);
+            const isSingleIssue = /\s#\d+\s*\(/i.test(title);
+            
+            if (isTpb && !isSingleIssue) {
+                return { found: true, tpb: { title, link } };
+            }
+        }
+
+        return { found: false };
+    } catch (err) {
+        console.error(`Error searching for "${seriesName}":`, err.message);
+        return { found: false, error: err.message };
+    }
 }
