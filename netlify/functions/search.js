@@ -3,12 +3,21 @@ const { JSDOM } = require('jsdom');
 
 exports.handler = async (event) => {
     if (event.httpMethod !== 'POST') {
-        return { statusCode: 405, body: 'Method not allowed' };
+        return { statusCode: 405, body: JSON.stringify({ error: 'Method not allowed' }) };
     }
 
     try {
         const { series } = JSON.parse(event.body);
+        
+        if (!series) {
+            return {
+                statusCode: 400,
+                body: JSON.stringify({ error: 'series parameter required' })
+            };
+        }
+
         const result = await searchGetcomics(series);
+        console.log(`Search result for "${series}":`, result);
 
         return {
             statusCode: 200,
@@ -19,45 +28,77 @@ exports.handler = async (event) => {
         console.error('Search error:', err);
         return {
             statusCode: 500,
-            body: JSON.stringify({ error: err.message })
+            body: JSON.stringify({ error: err.message, found: false })
         };
     }
 };
 
 async function searchGetcomics(seriesName) {
     const searchUrl = `https://getcomics.org/?s=${encodeURIComponent(seriesName + ' tpb')}`;
+    console.log('Searching:', searchUrl);
     
-    const html = await fetchUrl(searchUrl);
-    const dom = new JSDOM(html);
-    const doc = dom.window.document;
+    try {
+        const html = await fetchUrl(searchUrl);
+        const dom = new JSDOM(html);
+        const doc = dom.window.document;
 
-    const articles = doc.querySelectorAll('article.item');
-    
-    for (const article of articles) {
-        const title = article.querySelector('h2 a')?.textContent || '';
-        const link = article.querySelector('h2 a')?.getAttribute('href') || '';
+        // Get all h2 and h3 elements (these are the result titles)
+        const resultHeadings = doc.querySelectorAll('h2 a, h3 a');
         
-        // Check if title contains "TPB", "Trade Paperback", or "Volume"
-        if (/tpb|trade\s*paperback|vol(?:ume)?/i.test(title)) {
-            return {
-                found: true,
-                tpb: {
-                    title: title.trim(),
-                    link: link
-                }
-            };
+        for (const link of resultHeadings) {
+            const title = link.textContent?.trim() || '';
+            const href = link.getAttribute('href') || '';
+            
+            console.log(`Checking result: ${title}`);
+            
+            // Match TPB, Trade Paperback, Volume, Vol., Hardcover, Deluxe, or Comic (but exclude single issues)
+            // Exclude if it contains #1, #2, etc (single issues)
+            if (/\btpb\b|trade\s*paperback|vol(?:ume)?\.?\s*\d|hardcover|deluxe|collection|omnibus/i.test(title) 
+                && !/\s#\d+\s*\(/i.test(title)) {
+                
+                console.log(`✓ Found matching TPB: ${title} at ${href}`);
+                return {
+                    found: true,
+                    tpb: { 
+                        title: title, 
+                        link: href 
+                    }
+                };
+            }
         }
-    }
 
-    return { found: false };
+        console.log(`No TPB found for "${seriesName}"`);
+        return { found: false };
+    } catch (err) {
+        console.error('Search error:', err.message);
+        return { found: false, error: err.message };
+    }
 }
 
 function fetchUrl(url) {
     return new Promise((resolve, reject) => {
-        https.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' } }, (res) => {
-            let data = '';
-            res.on('data', chunk => data += chunk);
-            res.on('end', () => resolve(data));
-        }).on('error', reject);
+        const timeout = setTimeout(() => {
+            reject(new Error('Request timeout'));
+        }, 15000);
+
+        https.get(url, 
+            { 
+                headers: { 
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                },
+                timeout: 15000
+            }, 
+            (res) => {
+                let data = '';
+                res.on('data', chunk => data += chunk);
+                res.on('end', () => {
+                    clearTimeout(timeout);
+                    resolve(data);
+                });
+            }
+        ).on('error', (err) => {
+            clearTimeout(timeout);
+            reject(err);
+        });
     });
 }
