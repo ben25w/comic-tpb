@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Comic TPB Tracker</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg: #ffffff;
+            --text: #1a1a1a;
+            --border: #e0e0e0;
+            --input-bg: #f5f5f5;
+            --accent: #0066cc;
+            --accent-hover: #0052a3;
+            --success: #28a745;
+            --error: #dc3545;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg: #1a1a1a;
+                --text: #e0e0e0;
+                --border: #333333;
+                --input-bg: #2a2a2a;
+                --accent: #4a9eff;
+                --accent-hover: #2e7cd6;
+                --success: #51cf66;
+                --error: #ff6b6b;
+            }
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            transition: background 0.2s, color 0.2s;
+            padding: 1rem;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        header {
+            margin-bottom: 2rem;
+            text-align: center;
+        }
+
+        h1 {
+            font-size: 1.8rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .subtitle {
+            color: var(--text);
+            opacity: 0.7;
+            font-size: 0.95rem;
+        }
+
+        .form-group {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1.5rem;
+            flex-wrap: wrap;
+        }
+
+        input {
+            flex: 1;
+            min-width: 200px;
+            padding: 0.75rem;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--input-bg);
+            color: var(--text);
+            font-size: 1rem;
+            transition: border-color 0.2s;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        button {
+            padding: 0.75rem 1.5rem;
+            background: var(--accent);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: background 0.2s;
+            font-weight: 500;
+        }
+
+        button:hover {
+            background: var(--accent-hover);
+        }
+
+        button:active {
+            transform: scale(0.98);
+        }
+
+        .btn-small {
+            padding: 0.5rem 1rem;
+            font-size: 0.9rem;
+        }
+
+        .btn-secondary {
+            background: var(--input-bg);
+            color: var(--text);
+            border: 1px solid var(--border);
+        }
+
+        .btn-secondary:hover {
+            background: var(--border);
+        }
+
+        .btn-success {
+            background: var(--success);
+        }
+
+        .btn-success:hover {
+            background: #218838;
+        }
+
+        .btn-error {
+            background: var(--error);
+        }
+
+        .btn-error:hover {
+            background: #c82333;
+        }
+
+        .series-list {
+            display: grid;
+            gap: 1rem;
+        }
+
+        .series-card {
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1rem;
+            background: var(--input-bg);
+            transition: all 0.2s;
+        }
+
+        .series-card:hover {
+            border-color: var(--accent);
+            box-shadow: 0 2px 8px rgba(0, 102, 204, 0.1);
+        }
+
+        .series-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: start;
+            gap: 1rem;
+            margin-bottom: 0.75rem;
+        }
+
+        .series-name {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: var(--text);
+        }
+
+        .series-actions {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .tpb-status {
+            margin-bottom: 0.75rem;
+            padding: 0.75rem;
+            border-radius: 4px;
+            background: var(--bg);
+        }
+
+        .tpb-found {
+            border-left: 4px solid var(--success);
+        }
+
+        .tpb-not-found {
+            border-left: 4px solid var(--border);
+        }
+
+        .tpb-loading {
+            border-left: 4px solid var(--accent);
+        }
+
+        .tpb-title {
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+
+        .tpb-link {
+            display: inline-block;
+            color: var(--accent);
+            text-decoration: none;
+            word-break: break-all;
+            font-size: 0.9rem;
+        }
+
+        .tpb-link:hover {
+            text-decoration: underline;
+        }
+
+        .status-text {
+            font-size: 0.9rem;
+            color: var(--text);
+            opacity: 0.8;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 2rem;
+            color: var(--text);
+            opacity: 0.7;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 1rem;
+            height: 1rem;
+            border: 2px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.6s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .last-checked {
+            font-size: 0.85rem;
+            color: var(--text);
+            opacity: 0.6;
+            margin-top: 0.5rem;
+        }
+
+        .banner {
+            padding: 0.75rem;
+            border-radius: 6px;
+            margin-bottom: 1.5rem;
+            text-align: center;
+            font-size: 0.95rem;
+        }
+
+        .banner-info {
+            background: rgba(74, 158, 255, 0.1);
+            border: 1px solid var(--accent);
+            color: var(--accent);
+        }
+
+        @media (max-width: 600px) {
+            h1 {
+                font-size: 1.5rem;
+            }
+
+            .form-group {
+                flex-direction: column;
+            }
+
+            input {
+                min-width: 100%;
+            }
+
+            button {
+                width: 100%;
+            }
+
+            .series-header {
+                flex-direction: column;
+            }
+
+            .series-actions {
+                width: 100%;
+            }
+
+            .series-actions button {
+                flex: 1;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎨 Comic TPB Tracker</h1>
+            <p class="subtitle">Track trade paperbacks automatically</p>
+        </header>
+
+        <div class="form-group">
+            <input 
+                type="text" 
+                id="seriesInput" 
+                placeholder="e.g., Amazing Spider-Man, The Walking Dead..."
+                autocomplete="off"
+            >
+            <button onclick="addSeries()">+ Add Series</button>
+        </div>
+
+        <div id="banner"></div>
+
+        <div id="seriesList" class="series-list"></div>
+        <div id="emptyState" class="empty-state" style="display:none;">
+            📭 No series tracked yet. Add one above!
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script>
+        const SUPABASE_URL = 'YOUR_SUPABASE_URL';
+        const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY';
+        
+        const { createClient } = window.supabase;
+        const db = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        async function addSeries() {
+            const input = document.getElementById('seriesInput');
+            const name = input.value.trim();
+            
+            if (!name) return;
+
+            try {
+                const { error } = await db.from('series').insert([
+                    { name, last_poll: null }
+                ]);
+
+                if (error) throw error;
+                input.value = '';
+                loadSeries();
+            } catch (err) {
+                alert('Error adding series: ' + err.message);
+            }
+        }
+
+        async function loadSeries() {
+            try {
+                const { data: series, error } = await db
+                    .from('series')
+                    .select('*')
+                    .order('created_at', { ascending: false });
+
+                if (error) throw error;
+
+                const list = document.getElementById('seriesList');
+                const empty = document.getElementById('emptyState');
+
+                if (!series || series.length === 0) {
+                    list.innerHTML = '';
+                    empty.style.display = 'block';
+                    return;
+                }
+
+                empty.style.display = 'none';
+                list.innerHTML = '';
+
+                for (const s of series) {
+                    const card = await createSeriesCard(s);
+                    list.appendChild(card);
+                }
+            } catch (err) {
+                console.error('Error loading series:', err);
+            }
+        }
+
+        async function createSeriesCard(series) {
+            const { data: tpbs } = await db
+                .from('tpbs')
+                .select('*')
+                .eq('series_id', series.id)
+                .order('created_at', { ascending: false })
+                .limit(1);
+
+            const { data: dismissed } = await db
+                .from('dismissed')
+                .select('tpb_id')
+                .eq('series_id', series.id);
+
+            const dismissedSet = new Set((dismissed || []).map(d => d.tpb_id));
+            const latestTpb = tpbs && tpbs.length > 0 ? tpbs[0] : null;
+            const isDismissed = latestTpb ? dismissedSet.has(latestTpb.id) : false;
+
+            const card = document.createElement('div');
+            card.className = 'series-card';
+            card.innerHTML = `
+                <div class="series-header">
+                    <div>
+                        <div class="series-name">${escapeHtml(series.name)}</div>
+                        ${series.last_poll ? `<div class="last-checked">Last checked: ${new Date(series.last_poll).toLocaleDateString()}</div>` : ''}
+                    </div>
+                    <div class="series-actions">
+                        <button class="btn-small btn-secondary" onclick="refreshSeries('${series.id}')">🔄 Check</button>
+                        <button class="btn-small btn-error" onclick="deleteSeries('${series.id}')">✕</button>
+                    </div>
+                </div>
+
+                <div id="tpb-${series.id}">
+                    ${isDismissed ? 
+                        `<div class="tpb-status tpb-not-found"><div class="status-text">✓ Dismissed. Next update will show new releases.</div></div>` :
+                        latestTpb ?
+                        `<div class="tpb-status tpb-found">
+                            <div class="tpb-title">✓ TPB Found</div>
+                            <div><a href="${escapeHtml(latestTpb.link)}" target="_blank" class="tpb-link">${escapeHtml(latestTpb.title)}</a></div>
+                            <div class="status-text">${new Date(latestTpb.release_date).toLocaleDateString()}</div>
+                            <button class="btn-small btn-secondary" onclick="dismissTPB('${series.id}', '${latestTpb.id}')">Don't show again</button>
+                        </div>` :
+                        `<div class="tpb-status tpb-not-found"><div class="status-text">No TPBs found yet</div></div>`
+                    }
+                </div>
+            `;
+
+            return card;
+        }
+
+        async function refreshSeries(seriesId) {
+            const { data: series } = await db.from('series').select('*').eq('id', seriesId).single();
+            
+            const tpbDiv = document.getElementById(`tpb-${seriesId}`);
+            tpbDiv.innerHTML = '<div class="tpb-status tpb-loading"><div class="spinner"></div> <span style="margin-left: 0.5rem;">Checking...</span></div>';
+
+            try {
+                const response = await fetch('/.netlify/functions/search', {
+                    method: 'POST',
+                    body: JSON.stringify({ series: series.name })
+                });
+
+                const result = await response.json();
+
+                if (result.found && result.tpb) {
+                    // Check if already in DB
+                    const { data: existing } = await db
+                        .from('tpbs')
+                        .select('*')
+                        .eq('series_id', seriesId)
+                        .eq('title', result.tpb.title);
+
+                    if (!existing || existing.length === 0) {
+                        await db.from('tpbs').insert([{
+                            series_id: seriesId,
+                            title: result.tpb.title,
+                            link: result.tpb.link,
+                            release_date: new Date().toISOString()
+                        }]);
+                    }
+
+                    // Clear dismissal for new TPB
+                    await db.from('dismissed').delete().eq('series_id', seriesId);
+                }
+
+                // Update last_poll
+                await db.from('series').update({ last_poll: new Date() }).eq('id', seriesId);
+                loadSeries();
+            } catch (err) {
+                tpbDiv.innerHTML = `<div class="tpb-status"><div class="status-text">Error: ${err.message}</div></div>`;
+            }
+        }
+
+        async function dismissTPB(seriesId, tpbId) {
+            try {
+                await db.from('dismissed').insert([{
+                    series_id: seriesId,
+                    tpb_id: tpbId
+                }]);
+                loadSeries();
+            } catch (err) {
+                console.error('Error dismissing TPB:', err);
+            }
+        }
+
+        async function deleteSeries(seriesId) {
+            if (!confirm('Delete this series?')) return;
+
+            try {
+                await db.from('series').delete().eq('id', seriesId);
+                loadSeries();
+            } catch (err) {
+                alert('Error deleting series: ' + err.message);
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Load on page load
+        loadSeries();
+
+        // Show banner
+        const banner = document.getElementById('banner');
+        const now = new Date();
+        const lastRun = localStorage.getItem('lastPoller');
+        
+        if (!lastRun || (now - new Date(lastRun)) > 24 * 60 * 60 * 1000) {
+            banner.className = 'banner banner-info';
+            banner.textContent = '⏰ Daily poller hasn\'t run yet today. Check back later!';
+            localStorage.setItem('lastPoller', now);
+        }
+    </script>
+</body>
+</html>
